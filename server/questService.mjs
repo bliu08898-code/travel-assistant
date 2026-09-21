@@ -18,6 +18,8 @@ const VIBE_KEYWORDS = {
   surprise: ['书店', '公园', '博物馆', '美术馆', '市场', '创意园'],
 }
 
+const MAX_WALK_MINUTES = 30
+
 const PARTY_PROFILES = [
   {
     max: 1,
@@ -309,7 +311,9 @@ export async function createQuest({ input, excludedIds = [] }, config = process.
     throw new QuestServiceError('人均预算看起来不太对，请重新填写一个数字。', 'INVALID_BUDGET')
   }
 
-  const partySize = normalizedPartySize(input.partySize)
+  const partySize = input.partySize === undefined || input.partySize === null || input.partySize === ''
+    ? 1
+    : normalizedPartySize(input.partySize)
   if (!partySize) throw new QuestServiceError('同行人数需要是 1–99 之间的整数。', 'INVALID_PARTY_SIZE')
   const partyProfile = partyProfileFor(partySize)
 
@@ -362,6 +366,7 @@ export async function createQuest({ input, excludedIds = [] }, config = process.
   }
 
   const feasible = routed.filter((candidate) => {
+    if (candidate.travelMinutes > MAX_WALK_MINUTES) return false
     if (candidate.travelMinutes + candidate.stayMinutes + 20 > availableMinutes) return false
     if (openingStatus(candidate.hours, nowMinutes + candidate.travelMinutes, candidate.stayMinutes) === 'closed') return false
     if (Number.isFinite(maxBudget) && candidate.costValue !== null && candidate.costValue > maxBudget) return false
@@ -374,7 +379,7 @@ export async function createQuest({ input, excludedIds = [] }, config = process.
   })
 
   if (!feasible.length) {
-    throw new QuestServiceError('附近暂时没有找到同时满足时间、人数和人均预算的可靠地点。换个心情或放宽条件，再试一次吧。', 'NO_FEASIBLE_PLACE', 404)
+    throw new QuestServiceError('步行 30 分钟内暂时没有找到同时满足时间、人数和人均预算的可靠地点。可以换个心情或调整条件再试一次。', 'NO_FEASIBLE_PLACE', 404)
   }
 
   const partyMatched = feasible.filter((candidate) => candidate.partyFit > 0)
