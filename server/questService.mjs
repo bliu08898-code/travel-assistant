@@ -18,6 +18,44 @@ const VIBE_KEYWORDS = {
   surprise: ['书店', '公园', '博物馆', '美术馆', '市场', '创意园'],
 }
 
+const PARTY_PROFILES = [
+  {
+    max: 1,
+    label: '一个人也舒服',
+    guidance: '优先安静、沉浸、低协作，可以按自己的节奏探索',
+    keywords: ['书店', '博物馆', '美术馆', '公园', '植物园'],
+    match: /(书店|图书馆|博物馆|美术馆|艺术馆|画廊|公园|植物园|咖啡)/,
+  },
+  {
+    max: 2,
+    label: '适合两个人',
+    guidance: '兼顾交流空间与轻体验感，不需要复杂组织',
+    keywords: ['美术馆', '咖啡馆', '陶艺', '公园', '特色餐厅'],
+    match: /(美术馆|展览|咖啡|陶艺|手工|餐厅|公园|滨水|观景)/,
+  },
+  {
+    max: 4,
+    label: '适合小队参与',
+    guidance: '优先互动性强、可以共同参与、方便统一意见的活动',
+    keywords: ['密室逃脱', '桌游', '市集', '骑行', '特色餐厅'],
+    match: /(密室|桌游|LiveHouse|市集|骑行|餐厅|露营|运动|保龄|射箭)/i,
+  },
+  {
+    max: 8,
+    label: '适合多人一起玩',
+    guidance: '优先有明确共同活动的集体娱乐，减少各玩各的',
+    keywords: ['KTV', '剧本杀', '桌游', '烧烤', '团体运动'],
+    match: /(KTV|密室|桌游|烧烤|餐厅|运动|体育|轰趴|剧本杀)/i,
+  },
+  {
+    max: Infinity,
+    label: '适合大队伍集合',
+    guidance: '优先空间更开放、容量更大、移动和协调成本更低的活动',
+    keywords: ['团建场地', '体育公园', '户外营地', '大型餐厅', '体育馆'],
+    match: /(团建|体育公园|营地|露营|大型餐厅|广场|景区|公园|体育馆)/,
+  },
+]
+
 const VIBE_META = {
   quiet: ['QUIET RESET · 安静重启', '#387a59'],
   curious: ['CURIOUS DETOUR · 好奇支线', '#ee5f3d'],
@@ -54,9 +92,32 @@ export function minutesUntil(time, date) {
 
 function budgetLimit(input) {
   if (input.budget === 'free') return 0
-  if (input.budget === '50') return 50
-  if (input.budget === '100') return 100
+  if (input.budget === 'any') return Infinity
   return Number(input.customBudget)
+}
+
+function normalizedPartySize(value) {
+  const size = Number(value ?? 1)
+  return Number.isInteger(size) && size >= 1 && size <= 99 ? size : null
+}
+
+export function partyProfileFor(value) {
+  const size = normalizedPartySize(value) ?? 1
+  return PARTY_PROFILES.find((profile) => size <= profile.max) || PARTY_PROFILES.at(-1)
+}
+
+function searchKeywordsFor(vibe, profile) {
+  const vibeKeywords = VIBE_KEYWORDS[vibe] || VIBE_KEYWORDS.surprise
+  const mixed = []
+  for (let index = 0; index < Math.max(profile.keywords.length, vibeKeywords.length); index += 1) {
+    if (profile.keywords[index]) mixed.push(profile.keywords[index])
+    if (vibeKeywords[index]) mixed.push(vibeKeywords[index])
+  }
+  return [...new Set(mixed)].slice(0, 6)
+}
+
+function partyFitScore(poi, profile) {
+  return profile.match.test(`${text(poi.name)} ${text(poi.type || poi.category)}`) ? 1 : 0
 }
 
 function text(value) {
@@ -198,8 +259,17 @@ export function fallbackWriting(candidate, input = {}, rerollCount = 0) {
   const group = MISSION_LIBRARY.find((item) => item.match.test(label)) || MISSION_LIBRARY.at(-1)
   const offset = VIBE_OFFSET[input.vibe] ?? VIBE_OFFSET.surprise
   const index = (hashText(candidate.id || candidate.name) + offset + rerollCount) % group.copies.length
-  const [action, mission, reason] = group.copies[index]
-  return { title: `去 ${candidate.name} ${action}`, mission, reason }
+  const [action, baseMission, baseReason] = group.copies[index]
+  const partySize = normalizedPartySize(input.partySize) ?? 1
+  const profile = partyProfileFor(partySize)
+  const mission = partySize === 1
+    ? baseMission
+    : partySize === 2
+      ? `你们各自完成一次，再交换答案：${baseMission}`
+      : partySize <= 4
+        ? `先各自提名，再一起选出一个最终答案：${baseMission}`
+        : `全员轮流给出一个答案，最后投票选出今日冠军：${baseMission}`
+  return { title: `去 ${candidate.name} ${action}`, mission, reason: `${baseReason}${profile.label}，这次不用费力协调。` }
 }
 
 function navigationUrl(candidate) {
@@ -235,13 +305,17 @@ export async function createQuest({ input, excludedIds = [] }, config = process.
   }
 
   const maxBudget = budgetLimit(input)
-  if (!Number.isFinite(maxBudget) || maxBudget < 0) {
-    throw new QuestServiceError('预算看起来不太对，请重新填写一个数字。', 'INVALID_BUDGET')
+  if ((!Number.isFinite(maxBudget) && maxBudget !== Infinity) || maxBudget < 0) {
+    throw new QuestServiceError('人均预算看起来不太对，请重新填写一个数字。', 'INVALID_BUDGET')
   }
+
+  const partySize = normalizedPartySize(input.partySize)
+  if (!partySize) throw new QuestServiceError('同行人数需要是 1–99 之间的整数。', 'INVALID_PARTY_SIZE')
+  const partyProfile = partyProfileFor(partySize)
 
   const origin = await resolveOrigin(input, amapKey)
   const radius = availableMinutes < 90 ? 1500 : availableMinutes < 180 ? 3000 : 5000
-  const keywords = VIBE_KEYWORDS[input.vibe] || VIBE_KEYWORDS.surprise
+  const keywords = searchKeywordsFor(input.vibe, partyProfile)
   const excluded = new Set(excludedIds)
   const unique = new Map()
   for (const keyword of keywords) {
@@ -257,7 +331,7 @@ export async function createQuest({ input, excludedIds = [] }, config = process.
 
   const nowMinutes = chinaClock()
   const nearby = [...unique.values()]
-    .sort((a, b) => Number(a.distance || Infinity) - Number(b.distance || Infinity))
+    .sort((a, b) => (partyFitScore(b, partyProfile) - partyFitScore(a, partyProfile)) || (Number(a.distance || Infinity) - Number(b.distance || Infinity)))
     .filter((poi) => {
       const approximateTravel = Math.max(2, Math.ceil(Number(poi.distance || 0) / 70))
       return openingStatus(poi.business?.opentime_today, nowMinutes + approximateTravel, visitMinutes(poi)) === 'open'
@@ -282,6 +356,7 @@ export async function createQuest({ input, excludedIds = [] }, config = process.
       costValue: parseCost(poi.business?.cost),
       rating: Number.parseFloat(text(poi.business?.rating)) || null,
       likelyFree: isLikelyFree(poi),
+      partyFit: partyFitScore(poi, partyProfile),
     })
     await wait(1100)
   }
@@ -289,25 +364,35 @@ export async function createQuest({ input, excludedIds = [] }, config = process.
   const feasible = routed.filter((candidate) => {
     if (candidate.travelMinutes + candidate.stayMinutes + 20 > availableMinutes) return false
     if (openingStatus(candidate.hours, nowMinutes + candidate.travelMinutes, candidate.stayMinutes) === 'closed') return false
-    if (candidate.costValue !== null && candidate.costValue > maxBudget) return false
+    if (Number.isFinite(maxBudget) && candidate.costValue !== null && candidate.costValue > maxBudget) return false
     if (maxBudget === 0 && candidate.costValue === null && !candidate.likelyFree) return false
     return true
   }).sort((a, b) => {
     const aKnown = openingStatus(a.hours, nowMinutes + a.travelMinutes, a.stayMinutes) === 'open' ? 1 : 0
     const bKnown = openingStatus(b.hours, nowMinutes + b.travelMinutes, b.stayMinutes) === 'open' ? 1 : 0
-    return (bKnown - aKnown) || ((b.rating || 0) - (a.rating || 0)) || (a.travelMinutes - b.travelMinutes)
+    return (bKnown - aKnown) || (b.partyFit - a.partyFit) || ((b.rating || 0) - (a.rating || 0)) || (a.travelMinutes - b.travelMinutes)
   })
 
   if (!feasible.length) {
-    throw new QuestServiceError('附近暂时没有找到同时满足时间和预算的可靠地点。换个心情或稍微放宽预算，再试一次吧。', 'NO_FEASIBLE_PLACE', 404)
+    throw new QuestServiceError('附近暂时没有找到同时满足时间、人数和人均预算的可靠地点。换个心情或放宽条件，再试一次吧。', 'NO_FEASIBLE_PLACE', 404)
   }
 
-  const grounded = feasible.slice(0, 8)
+  const partyMatched = feasible.filter((candidate) => candidate.partyFit > 0)
+  const grounded = (partyMatched.length ? partyMatched : feasible).slice(0, 8)
   let writing = null
   let generationFallbackReason = null
   try {
     writing = await askQwen({
-      input: { vibe: input.vibe, availableMinutes, maxBudget, deadlineDate: input.freeUntilDate, deadlineTime: input.freeUntil },
+      input: {
+        vibe: input.vibe,
+        partySize,
+        partyGuidance: partyProfile.guidance,
+        budgetPreference: input.budget,
+        maxBudgetPerPerson: Number.isFinite(maxBudget) ? maxBudget : null,
+        availableMinutes,
+        deadlineDate: input.freeUntilDate,
+        deadlineTime: input.freeUntil,
+      },
       candidates: grounded.map((item) => ({
         id: item.id, name: item.name, category: item.category,
         walkMinutes: item.travelMinutes, stayMinutes: item.stayMinutes,
@@ -357,7 +442,10 @@ export async function createQuest({ input, excludedIds = [] }, config = process.
     verifiedAt: new Date().toISOString(),
     verificationNote: caveats.length
       ? `真实地点与步行路线已核验；${caveats.join('；')}。`
-      : '真实地点、步行路线、营业时间与预算均已核验。',
+      : input.budget === 'any'
+        ? '真实地点、步行路线与营业时间均已核验；本次未限制人均预算。'
+        : '真实地点、步行路线、营业时间与人均预算均已核验。',
+    partyLabel: `${partySize} 人同行`,
     generationSource: writing && selected.id === writing.selectedId ? 'qwen' : 'local-rules',
     generationFallbackReason,
   }
