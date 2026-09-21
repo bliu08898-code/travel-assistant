@@ -17,6 +17,7 @@ import {
   LocateFixed,
   MapPin,
   Sparkles,
+  UsersRound,
   WalletCards,
   X,
 } from 'lucide-react'
@@ -35,10 +36,19 @@ const vibes: { id: Vibe; label: string; hint: string; icon: string }[] = [
 
 const budgets: { id: Budget; label: string }[] = [
   { id: 'free', label: '免费' },
-  { id: '50', label: '50 元以内' },
-  { id: '100', label: '100 元以内' },
+  { id: 'any', label: '无所谓' },
   { id: 'custom', label: '自定义' },
 ]
+
+function partyHint(value: string) {
+  const size = Number(value)
+  if (!Number.isInteger(size) || size < 1) return '填入这次一起出发的总人数。'
+  if (size === 1) return '一个人出发：优先安静、沉浸、低协作的去处。'
+  if (size === 2) return '两个人出发：兼顾交流空间和轻体验感。'
+  if (size <= 4) return '小队出发：优先大家能一起参与的活动。'
+  if (size <= 8) return '多人出发：优先共同活动，减少“各玩各的”。'
+  return '大队伍出发：优先空间更开放、组织成本更低的地点。'
+}
 
 const loadingSteps = [
   '正在翻翻你附近有什么',
@@ -101,7 +111,7 @@ function BriefModal({ onClose }: { onClose: () => void }) {
         </section>
         <section>
           <h3>我们提供什么</h3>
-          <p>把你在哪儿、几点前有空、今天想怎么待告诉 LITTLE DETOUR。我们先把去不了、来不及、不合适的选项删掉，然后只留一个现在真的可以去的地方。</p>
+          <p>把你在哪儿、几个人、几点前有空、今天想怎么待告诉 LITTLE DETOUR。我们先把去不了、来不及、不适合同行人数的选项删掉，然后只留一个现在真的可以去的地方。</p>
         </section>
         <div className="brief-pillars">
           <div><strong>One</strong><span>一次只给一个 Quest</span></div>
@@ -139,7 +149,7 @@ function Home({ onStart, onBrief }: { onStart: () => void; onBrief: () => void }
         <div className="hero-copy">
           <span className="kicker"><span className="live-dot" /> ONE PLACE · ONE MISSION</span>
           <h1 className="hero-title-en">Your next move,<br /><em>decided.</em></h1>
-          <p className="hero-intro">突然空出两三个小时，又懒得临时做攻略？<br />告知你的位置与时间，我们会给你下一个目的地<br />再随机附送一件有点意思的小任务哦☺️</p>
+          <p className="hero-intro">突然空出两三个小时，又懒得临时做攻略？<br />告知你的位置、时间与人数，我们会给你下一个目的地<br />再随机附送一件有点意思的小任务哦☺️</p>
           <button className="primary-button" onClick={onStart}>看看我该去哪 <ArrowRight size={19} /></button>
           <span className="privacy-note"><LocateFixed size={14} /> 无需注册 · 位置仅用于本次推荐</span>
         </div>
@@ -208,12 +218,14 @@ function Setup({ form, setForm, onGenerate, onBack }: SetupProps) {
 
   const customBudget = Number(form.customBudget)
   const hasValidBudget = form.budget !== 'custom' || (Number.isFinite(customBudget) && customBudget > 0)
+  const partySize = Number(form.partySize)
+  const hasValidPartySize = Number.isInteger(partySize) && partySize >= 1 && partySize <= 99
   const deadlineTimestamp = form.freeUntilDate && form.freeUntil
     ? Date.parse(`${form.freeUntilDate}T${form.freeUntil}:00+08:00`)
     : NaN
   const deadlineMinutes = Math.floor((deadlineTimestamp - Date.now()) / 60000)
   const hasValidDeadline = Number.isFinite(deadlineMinutes) && deadlineMinutes >= 45
-  const isValid = form.locationLabel.trim().length > 1 && hasValidDeadline && hasValidBudget
+  const isValid = form.locationLabel.trim().length > 1 && hasValidDeadline && hasValidPartySize && hasValidBudget
 
   useEffect(() => {
     if (!timePickerOpen) return
@@ -338,7 +350,29 @@ function Setup({ form, setForm, onGenerate, onBack }: SetupProps) {
           </fieldset>
 
           <fieldset>
-            <legend><span>3</span> 现在想来点什么？</legend>
+            <legend><span>3</span> 这次几个人一起？</legend>
+            <label className="party-size-input">
+              <UsersRound size={19} aria-hidden="true" />
+              <input
+                aria-label="当前行程人数"
+                type="number"
+                inputMode="numeric"
+                min="1"
+                max="99"
+                step="1"
+                value={form.partySize}
+                onChange={(event) => setForm({ ...form, partySize: event.target.value })}
+                placeholder="输入人数"
+              />
+              <span>人</span>
+            </label>
+            <p className={`field-hint ${form.partySize && !hasValidPartySize ? 'is-warning' : ''}`}>
+              {form.partySize && !hasValidPartySize ? '请输入 1–99 之间的整数。' : partyHint(form.partySize)}
+            </p>
+          </fieldset>
+
+          <fieldset>
+            <legend><span>4</span> 现在想来点什么？</legend>
             <div className="vibe-grid">
               {vibes.map((vibe) => (
                 <button type="button" key={vibe.id} className={`vibe-option ${form.vibe === vibe.id ? 'is-selected' : ''}`} onClick={() => setForm({ ...form, vibe: vibe.id })}>
@@ -349,7 +383,7 @@ function Setup({ form, setForm, onGenerate, onBack }: SetupProps) {
           </fieldset>
 
           <fieldset>
-            <legend><span>4</span> 预算 <small>选填</small></legend>
+            <legend><span>5</span> 人均预算</legend>
             <div className="budget-row">
               {budgets.map((budget) => <button type="button" key={budget.id} className={form.budget === budget.id ? 'is-selected' : ''} onClick={() => setForm({ ...form, budget: budget.id })}>{budget.label}</button>)}
             </div>
@@ -359,21 +393,23 @@ function Setup({ form, setForm, onGenerate, onBack }: SetupProps) {
                   <WalletCards size={18} />
                   <span>¥</span>
                   <input
-                    aria-label="自定义最高预算"
+                    aria-label="自定义人均最高预算"
                     type="number"
                     inputMode="decimal"
                     min="1"
                     step="1"
                     value={form.customBudget}
                     onChange={(event) => setForm({ ...form, customBudget: event.target.value })}
-                    placeholder="输入最高预算"
+                    placeholder="输入人均最高预算"
                     autoFocus
                   />
                   <small>元</small>
                 </label>
-                <p className="field-hint">填一个你今天愿意花的最高金额。</p>
+                <p className="field-hint">填入每个人愿意花的最高金额。</p>
               </div>
             )}
+            {form.budget === 'free' && <p className="budget-hint field-hint">只推荐可以免费到访的地点；现场的额外消费不计算在内。</p>}
+            {form.budget === 'any' && <p className="budget-hint field-hint">本次不设人均消费上限，仍会优先考虑时间与人数是否合适。</p>}
           </fieldset>
 
           <button className="primary-button generate-button" disabled={!isValid}>好了，给我一个 Quest <ArrowRight size={19} /></button>
@@ -392,7 +428,7 @@ function Loading({ step }: { step: number }) {
       <span className="kicker">MAKING YOUR QUEST · 正在生成</span>
       <h1>{loadingSteps[step]}<span className="loading-dots">…</span></h1>
       <div className="loading-track"><span style={{ width: `${(step + 1) * 25}%` }} /></div>
-      <p>正在核对真实地点、步行时间和你的预算。</p>
+      <p>正在核对真实地点、同行人数、步行时间和人均预算。</p>
     </main>
   )
 }
@@ -413,7 +449,7 @@ function QuestView({ quest, rerolls, onReroll, onAccept, onEdit, rerolling }: Qu
       <section className={`quest-stage ${rerolling ? 'is-rerolling' : ''}`}>
         <div className="quest-number">SIDE<br />QUEST<br /><strong>#{quest.id.length + 7}</strong></div>
         <article className="quest-card">
-          <div className="quest-card-top"><span className="kicker">{quest.eyebrow}</span><span className="verified"><span /> 真实地点 · 已核验</span></div>
+          <div className="quest-card-top"><span className="kicker">{quest.eyebrow}</span><div className="quest-badges"><span className="party-badge"><UsersRound size={13} /> {quest.partyLabel}</span><span className="verified"><span /> 真实地点 · 已核验</span></div></div>
           <h1><QuestTitle title={quest.title} place={quest.place} /></h1>
           <div className="destination-block">
             <div className="destination-pin"><MapPin size={22} /></div>
@@ -488,7 +524,7 @@ function ErrorScreen({ message, onRetry, onEdit }: { message: string; onRetry: (
 export default function App() {
   const [screen, setScreen] = useState<Screen>('home')
   const [showBrief, setShowBrief] = useState(false)
-  const [form, setForm] = useState<QuestInput>({ locationLabel: '', freeUntilDate: chinaDateValue(), freeUntil: '', vibe: 'curious', budget: 'free', customBudget: '' })
+  const [form, setForm] = useState<QuestInput>({ locationLabel: '', freeUntilDate: chinaDateValue(), freeUntil: '', partySize: '1', vibe: 'curious', budget: 'free', customBudget: '' })
   const [quest, setQuest] = useState<Quest | null>(null)
   const [seenIds, setSeenIds] = useState<string[]>([])
   const [rerolls, setRerolls] = useState(3)

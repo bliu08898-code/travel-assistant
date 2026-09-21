@@ -145,6 +145,12 @@ button:focus-visible, input:focus-visible { outline: 3px solid rgba(238, 95, 61,
 .field-error { color: #b13723; font-size: 12px; }
 .field-hint, .demo-note { color: var(--muted); font: 400 10px/1.6 var(--mono); }
 .field-hint.is-warning { color: #b13723; }
+.party-size-input { min-height: 58px; width: 100%; border: 1px solid var(--ink); background: #fffaf2; display: flex; align-items: center; gap: 12px; padding: 0 17px; }
+.party-size-input svg { color: var(--red); flex: 0 0 auto; }
+.party-size-input input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; font-size: 17px; font-weight: 650; }
+.party-size-input > span { color: var(--muted); font: 500 11px var(--mono); }
+.party-size-input:focus-within { border-color: var(--red); box-shadow: 0 0 0 2px rgba(238, 95, 61, 0.1); }
+.party-size-input + .field-hint { margin: 8px 0 0; }
 .vibe-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 9px; }
 .vibe-option { min-height: 68px; border: 1px solid var(--line); background: transparent; padding: 11px 14px; cursor: pointer; display: grid; grid-template-columns: 34px 1fr auto; align-items: center; gap: 10px; text-align: left; }
 .vibe-option:last-child { grid-column: 1 / -1; }
@@ -154,7 +160,7 @@ button:focus-visible, input:focus-visible { outline: 3px solid rgba(238, 95, 61,
 .vibe-option strong, .vibe-option small { display: block; }
 .vibe-option strong { font-size: 13px; }
 .vibe-option small { font-size: 10px; color: var(--muted); margin-top: 3px; }
-.budget-row { display: grid; grid-template-columns: repeat(4, 1fr); }
+.budget-row { display: grid; grid-template-columns: repeat(3, 1fr); }
 .budget-row button { min-height: 46px; border: 1px solid var(--line); background: transparent; margin-left: -1px; cursor: pointer; font-size: 11px; }
 .budget-row button.is-selected { color: var(--cream); background: var(--ink); border-color: var(--ink); }
 .custom-budget-wrap { margin-top: 12px; }
@@ -164,6 +170,7 @@ button:focus-visible, input:focus-visible { outline: 3px solid rgba(238, 95, 61,
 .custom-budget small { color: var(--muted); font: 400 10px var(--mono); }
 .custom-budget:focus-within { border-color: var(--red); box-shadow: 0 0 0 2px rgba(238, 95, 61, 0.1); }
 .custom-budget-wrap .field-hint { margin: 8px 0 0; }
+.budget-hint { margin: 8px 0 0; }
 .generate-button { width: 100%; }
 .demo-note { text-align: center; margin: -25px 0 0; }
 
@@ -190,6 +197,9 @@ button:focus-visible, input:focus-visible { outline: 3px solid rgba(238, 95, 61,
 .quest-card { background: var(--cream); border: 1px solid var(--ink); padding: clamp(28px, 5vw, 62px); box-shadow: 12px 12px 0 rgba(32, 35, 30, 0.12); }
 .quest-card-top { display: flex; justify-content: space-between; align-items: center; }
 .quest-card-top .kicker { color: var(--quest-accent); }
+.quest-badges { display: flex; align-items: center; justify-content: flex-end; gap: 12px; }
+.party-badge { min-height: 26px; padding: 0 9px; border: 1px solid var(--line); display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font: 500 9px var(--mono); }
+.party-badge svg { color: var(--quest-accent); }
 .verified { font: 500 9px var(--mono); display: flex; align-items: center; gap: 8px; }
 .verified span { width: 7px; height: 7px; border-radius: 50%; background: #387a59; }
 .quest-card h1 { max-width: 760px; font-size: clamp(48px, 7vw, 78px); margin: 30px 0 48px; line-height: 1.12; }
@@ -281,12 +291,13 @@ button:focus-visible, input:focus-visible { outline: 3px solid rgba(238, 95, 61,
   .setup-form { gap: 38px; }
   .vibe-grid { grid-template-columns: 1fr; }
   .vibe-option:last-child { grid-column: auto; }
-  .budget-row { grid-template-columns: repeat(2, 1fr); }
+  .budget-row { grid-template-columns: repeat(3, 1fr); }
   .quest-page-header .text-button { font-size: 0; }
   .quest-page-header .text-button svg { width: 18px; height: 18px; }
   .quest-stage { margin-top: 35px; }
   .quest-card { padding: 26px 22px; box-shadow: 7px 7px 0 rgba(32,35,30,.12); }
   .quest-card-top { align-items: flex-start; gap: 10px; }
+  .quest-badges { align-items: flex-end; flex-direction: column; gap: 7px; }
   .verified { max-width: 100px; line-height: 1.4; text-align: right; }
   .quest-card h1 { font-size: 48px; margin: 26px 0 35px; }
   .destination-block { align-items: flex-start; }
