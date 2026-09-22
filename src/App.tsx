@@ -40,6 +40,42 @@ const budgets: { id: Budget; label: string }[] = [
   { id: 'custom', label: '自定义' },
 ]
 
+const defaultQuestInput = (): QuestInput => ({
+  locationLabel: '',
+  earliestStartMode: 'now',
+  earliestStartDate: chinaDateValue(),
+  earliestStartTime: '',
+  freeUntilDate: chinaDateValue(),
+  freeUntil: '',
+  partySize: '1',
+  vibe: 'curious',
+  budget: 'free',
+  customBudget: '',
+})
+
+const FORM_STORAGE_KEY = 'little-detour:quest-input'
+const PROGRESS_CONFIRM_STORAGE_KEY = 'little-detour:confirmed-steps'
+
+function savedQuestInput() {
+  if (typeof window === 'undefined') return defaultQuestInput()
+  try {
+    const saved = JSON.parse(window.localStorage.getItem(FORM_STORAGE_KEY) ?? '{}') as Partial<QuestInput>
+    return { ...defaultQuestInput(), ...saved }
+  } catch {
+    return defaultQuestInput()
+  }
+}
+
+function savedConfirmedSteps() {
+  if (typeof window === 'undefined') return [false, false, false, false, false]
+  try {
+    const saved = JSON.parse(window.localStorage.getItem(PROGRESS_CONFIRM_STORAGE_KEY) ?? '[]')
+    return Array.from({ length: 5 }, (_, index) => saved[index] === true)
+  } catch {
+    return [false, false, false, false, false]
+  }
+}
+
 function partyHint(value: string) {
   const size = Number(value)
   if (!Number.isInteger(size) || size < 1) return '填入这次一起出发的总人数。'
@@ -184,12 +220,79 @@ interface SetupProps {
   onBack: () => void
 }
 
+const progressLabels = ['位置', '时间', '人数', '偏好', '预算']
+
+function DetourCat({ complete }: { complete: boolean }) {
+  if (complete) {
+    return (
+      <svg viewBox="0 0 72 72" aria-hidden="true" className="detour-cat-svg detour-cat-svg--arrived">
+        <path className="cat-fill" d="M23 30 20 17l11 7c3-1 7-1 10 0l11-7-3 14c4 4 6 9 5 15-1 11-9 17-20 17S15 56 15 46c0-6 3-12 8-16Z" />
+        <path className="cat-line" d="M23 30 20 17l11 7c3-1 7-1 10 0l11-7-3 14c4 4 6 9 5 15-1 11-9 17-20 17S15 56 15 46c0-6 3-12 8-16Z" />
+        <path className="cat-line" d="M26 39h.1M43 39h.1M31 46c2 2 5 2 7 0M34.5 43v2M19 54c-6 0-8-6-5-10" />
+        <path className="cat-accent" d="m59 11 1.8 4.2L65 17l-4.2 1.8L59 23l-1.8-4.2L53 17l4.2-1.8L59 11Z" />
+        <path className="cat-accent" d="m12 25 1 2.4 2.5 1-2.5 1-1 2.6-1-2.6-2.5-1 2.5-1 1-2.4Z" />
+      </svg>
+    )
+  }
+
+  return (
+    <svg viewBox="0 0 84 58" aria-hidden="true" className="detour-cat-svg detour-cat-svg--running">
+      <path className="cat-fill" d="M25 19 22 7l10 7c4-1 9 0 12 2L55 10l-3 13c3 4 4 9 1 14-4 8-15 11-25 7-10-3-15-12-11-19 2-3 4-5 8-6Z" />
+      <path className="cat-line" d="M25 19 22 7l10 7c4-1 9 0 12 2L55 10l-3 13c3 4 4 9 1 14-4 8-15 11-25 7-10-3-15-12-11-19 2-3 4-5 8-6Z" />
+      <path className="cat-line" d="M30 25h.1M45 26h.1M34 31c2 2 5 2 7 0M37 28v3M52 36c10 3 17-1 20-8 2-5-2-8-5-5M28 44l-8 8M42 44l7 8" />
+      <path className="cat-accent" d="m10 15 6 1M7 22l7-1M9 29l6-3" />
+    </svg>
+  )
+}
+
+function SetupProgress({ completed, onSelect }: { completed: boolean[]; onSelect: (index: number) => void }) {
+  const firstIncomplete = completed.findIndex((item) => !item)
+  const currentIndex = firstIncomplete === -1 ? completed.length - 1 : firstIncomplete
+  const allComplete = firstIncomplete === -1
+  const progress = allComplete ? 100 : (currentIndex / (completed.length - 1)) * 100
+
+  return (
+    <aside className={`setup-progress ${allComplete ? 'is-complete' : ''}`} aria-label="信息填写进度">
+      <div className="progress-copy" aria-live="polite">
+        <span>{completed.filter(Boolean).length} / {completed.length}</span>
+        <small>{allComplete ? '线索集齐，准备出发' : `接下来：${progressLabels[currentIndex]}`}</small>
+      </div>
+      <div className="progress-rail">
+        <span className="progress-track" aria-hidden="true"><i style={{ '--progress': `${progress}%` } as React.CSSProperties} /></span>
+        <span className="cat-runner" style={{ top: `${progress}%`, '--cat-progress': `${progress}%` } as React.CSSProperties}><DetourCat complete={allComplete} /></span>
+        {progressLabels.map((label, index) => (
+          <button
+            type="button"
+            key={label}
+            className={`progress-stop ${completed[index] ? 'is-done' : ''} ${index === currentIndex ? 'is-current' : ''}`}
+            style={{ top: `${(index / (progressLabels.length - 1)) * 100}%` }}
+            onClick={() => onSelect(index)}
+            aria-label={`${label}：${completed[index] ? '已完成' : index === currentIndex ? '当前待填写' : '未完成'}`}
+            aria-current={index === currentIndex ? 'step' : undefined}
+          >
+            <span>{completed[index] ? <Check size={16} strokeWidth={2.5} /> : index + 1}</span>
+            <small>{label}</small>
+          </button>
+        ))}
+      </div>
+    </aside>
+  )
+}
+
 function Setup({ form, setForm, onGenerate, onBack }: SetupProps) {
   const [locating, setLocating] = useState(false)
   const [locationError, setLocationError] = useState('')
   const [timePickerOpen, setTimePickerOpen] = useState<'start' | 'end' | null>(null)
   const [draftTime, setDraftTime] = useState({ hour: '', minute: '' })
+  const [confirmedSteps, setConfirmedSteps] = useState<boolean[]>(savedConfirmedSteps)
   const timePickerRef = useRef<HTMLDivElement>(null)
+  const fieldsetRefs = useRef<(HTMLFieldSetElement | null)[]>([])
+
+  const confirmStep = (index: number) => {
+    setConfirmedSteps((current) => current[index]
+      ? current
+      : current.map((confirmed, stepIndex) => stepIndex === index ? true : confirmed))
+  }
 
   const useLocation = () => {
     if (!navigator.geolocation) {
@@ -233,7 +336,15 @@ function Setup({ form, setForm, onGenerate, onBack }: SetupProps) {
   const hasValidStart = form.earliestStartMode === 'now'
     || (hasCustomStartValue && Number.isFinite(startTimestamp) && startMinutesFromNow >= -1)
   const hasValidDeadline = Number.isFinite(windowMinutes) && windowMinutes >= 45
-  const isValid = form.locationLabel.trim().length > 1 && hasValidStart && hasValidDeadline && hasValidPartySize && hasValidBudget
+  const validAndConfirmedSteps = [
+    form.locationLabel.trim().length > 1,
+    hasValidStart && hasValidDeadline,
+    hasValidPartySize && confirmedSteps[2],
+    Boolean(form.vibe) && confirmedSteps[3],
+    hasValidBudget && confirmedSteps[4],
+  ]
+  const completedSteps = validAndConfirmedSteps.map((complete, index) => complete && validAndConfirmedSteps.slice(0, index + 1).every(Boolean))
+  const isValid = completedSteps.every(Boolean)
 
   const openTimePicker = (kind: 'start' | 'end', value: string) => {
     const [hour = '', minute = ''] = value ? value.split(':') : []
@@ -259,6 +370,10 @@ function Setup({ form, setForm, onGenerate, onBack }: SetupProps) {
     }
   }, [timePickerOpen])
 
+  useEffect(() => {
+    window.localStorage.setItem(PROGRESS_CONFIRM_STORAGE_KEY, JSON.stringify(confirmedSteps))
+  }, [confirmedSteps])
+
   return (
     <main className="setup-screen">
       <div className="setup-header">
@@ -274,8 +389,9 @@ function Setup({ form, setForm, onGenerate, onBack }: SetupProps) {
           <div className="principle-note"><span>JUST ONE</span><p>一次只给一个 Quest，不把选择题重新丢回给你。实在不喜欢，还有三次换题机会。</p></div>
         </aside>
 
+        <div className="setup-workflow">
         <form className="setup-form" onSubmit={(event) => { event.preventDefault(); if (isValid) onGenerate() }}>
-          <fieldset>
+          <fieldset ref={(node) => { fieldsetRefs.current[0] = node }}>
             <legend><span>1</span> 你现在在哪儿？</legend>
             <button type="button" className="location-button" onClick={useLocation} disabled={locating}>
               <Crosshair size={19} /> {locating ? '正在获取位置…' : form.coordinates ? '已获取当前位置' : '使用我的当前位置'}
@@ -286,7 +402,7 @@ function Setup({ form, setForm, onGenerate, onBack }: SetupProps) {
             {locationError && <p className="field-error">{locationError}</p>}
           </fieldset>
 
-          <fieldset>
+          <fieldset ref={(node) => { fieldsetRefs.current[1] = node }}>
             <legend><span>2</span> 这段空档，什么时候出发和结束？</legend>
             <div className="time-window-card" ref={timePickerRef}>
               <section className="time-anchor">
@@ -347,7 +463,7 @@ function Setup({ form, setForm, onGenerate, onBack }: SetupProps) {
             </p>
           </fieldset>
 
-          <fieldset>
+          <fieldset ref={(node) => { fieldsetRefs.current[2] = node }}>
             <legend><span>3</span> 这次几个人一起？</legend>
             <label className="party-size-input">
               <UsersRound size={19} aria-hidden="true" />
@@ -359,6 +475,7 @@ function Setup({ form, setForm, onGenerate, onBack }: SetupProps) {
                 max="99"
                 step="1"
                 value={form.partySize}
+                onFocus={() => confirmStep(2)}
                 onChange={(event) => setForm({ ...form, partySize: event.target.value })}
                 placeholder="输入人数"
               />
@@ -369,21 +486,21 @@ function Setup({ form, setForm, onGenerate, onBack }: SetupProps) {
             </p>
           </fieldset>
 
-          <fieldset>
+          <fieldset ref={(node) => { fieldsetRefs.current[3] = node }}>
             <legend><span>4</span> 现在想来点什么？</legend>
             <div className="vibe-grid">
               {vibes.map((vibe) => (
-                <button type="button" key={vibe.id} className={`vibe-option ${form.vibe === vibe.id ? 'is-selected' : ''}`} onClick={() => setForm({ ...form, vibe: vibe.id })}>
+                <button type="button" key={vibe.id} className={`vibe-option ${form.vibe === vibe.id ? 'is-selected' : ''}`} onClick={() => { confirmStep(3); setForm({ ...form, vibe: vibe.id }) }}>
                   <span className="vibe-icon">{vibe.icon}</span><span><strong>{vibe.label}</strong><small>{vibe.hint}</small></span>{form.vibe === vibe.id && <Check size={16} />}
                 </button>
               ))}
             </div>
           </fieldset>
 
-          <fieldset>
+          <fieldset ref={(node) => { fieldsetRefs.current[4] = node }}>
             <legend><span>5</span> 人均预算</legend>
             <div className="budget-row">
-              {budgets.map((budget) => <button type="button" key={budget.id} className={form.budget === budget.id ? 'is-selected' : ''} onClick={() => setForm({ ...form, budget: budget.id })}>{budget.label}</button>)}
+              {budgets.map((budget) => <button type="button" key={budget.id} className={form.budget === budget.id ? 'is-selected' : ''} onClick={() => { confirmStep(4); setForm({ ...form, budget: budget.id }) }}>{budget.label}</button>)}
             </div>
             {form.budget === 'custom' && (
               <div className="custom-budget-wrap">
@@ -413,6 +530,8 @@ function Setup({ form, setForm, onGenerate, onBack }: SetupProps) {
           <button className="primary-button generate-button" disabled={!isValid}>好了，给我一个 Quest <ArrowRight size={19} /></button>
           <p className="demo-note">只会从真实地点中做决定。地点、地址和步行时间均来自高德地图；AI 不负责编地点。</p>
         </form>
+        <SetupProgress completed={completedSteps} onSelect={(index) => fieldsetRefs.current[index]?.scrollIntoView({ behavior: 'smooth', block: 'center' })} />
+        </div>
       </section>
     </main>
   )
@@ -522,7 +641,7 @@ function ErrorScreen({ message, onRetry, onEdit }: { message: string; onRetry: (
 export default function App() {
   const [screen, setScreen] = useState<Screen>('home')
   const [showBrief, setShowBrief] = useState(false)
-  const [form, setForm] = useState<QuestInput>({ locationLabel: '', earliestStartMode: 'now', earliestStartDate: chinaDateValue(), earliestStartTime: '', freeUntilDate: chinaDateValue(), freeUntil: '', partySize: '1', vibe: 'curious', budget: 'free', customBudget: '' })
+  const [form, setForm] = useState<QuestInput>(savedQuestInput)
   const [quest, setQuest] = useState<Quest | null>(null)
   const [seenIds, setSeenIds] = useState<string[]>([])
   const [rerolls, setRerolls] = useState(3)
@@ -533,6 +652,10 @@ export default function App() {
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: 'instant' })
   }, [screen])
+
+  useEffect(() => {
+    window.localStorage.setItem(FORM_STORAGE_KEY, JSON.stringify(form))
+  }, [form])
 
   const reset = () => {
     setScreen('setup')
