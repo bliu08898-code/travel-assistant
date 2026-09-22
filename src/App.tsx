@@ -336,17 +336,12 @@ function Setup({ form, setForm, onGenerate, onBack }: SetupProps) {
   const hasValidStart = form.earliestStartMode === 'now'
     || (hasCustomStartValue && Number.isFinite(startTimestamp) && startMinutesFromNow >= -1)
   const hasValidDeadline = Number.isFinite(windowMinutes) && windowMinutes >= 45
-  const validAndConfirmedSteps = [
-    form.locationLabel.trim().length > 1,
-    hasValidStart && hasValidDeadline,
-    hasValidPartySize && confirmedSteps[2],
-    Boolean(form.vibe) && confirmedSteps[3],
-    hasValidBudget && confirmedSteps[4],
-  ]
-  const completedSteps = validAndConfirmedSteps.map((complete, index) => complete && validAndConfirmedSteps.slice(0, index + 1).every(Boolean))
-  const isValid = completedSteps.every(Boolean)
+  const completedSteps = confirmedSteps
+  const hasValidFormData = form.locationLabel.trim().length > 1 && hasValidStart && hasValidDeadline && hasValidPartySize && hasValidBudget
+  const isValid = hasValidFormData && confirmedSteps.every(Boolean)
 
   const openTimePicker = (kind: 'start' | 'end', value: string) => {
+    confirmStep(1)
     const [hour = '', minute = ''] = value ? value.split(':') : []
     setDraftTime({ hour, minute })
     setTimePickerOpen(kind)
@@ -393,12 +388,12 @@ function Setup({ form, setForm, onGenerate, onBack }: SetupProps) {
         <form className="setup-form" onSubmit={(event) => { event.preventDefault(); if (isValid) onGenerate() }}>
           <fieldset ref={(node) => { fieldsetRefs.current[0] = node }}>
             <legend><span>1</span> 你现在在哪儿？</legend>
-            <button type="button" className="location-button" onClick={useLocation} disabled={locating}>
+            <button type="button" className="location-button" onClick={() => { confirmStep(0); useLocation() }} disabled={locating}>
               <Crosshair size={19} /> {locating ? '正在获取位置…' : form.coordinates ? '已获取当前位置' : '使用我的当前位置'}
               {form.coordinates && <CheckCircle2 size={18} className="success-icon" />}
             </button>
             <div className="or-row"><span /> 或输入附近的车站、地标或区域 <span /></div>
-            <div className="input-wrap"><MapPin size={18} /><input aria-label="当前位置" value={form.locationLabel} onChange={(e) => setForm({ ...form, locationLabel: e.target.value, coordinates: undefined })} placeholder="例如：上海静安寺" /></div>
+            <div className="input-wrap"><MapPin size={18} /><input aria-label="当前位置" value={form.locationLabel} onChange={(e) => { confirmStep(0); setForm({ ...form, locationLabel: e.target.value, coordinates: undefined }) }} placeholder="例如：上海静安寺" /></div>
             {locationError && <p className="field-error">{locationError}</p>}
           </fieldset>
 
@@ -408,8 +403,8 @@ function Setup({ form, setForm, onGenerate, onBack }: SetupProps) {
               <section className="time-anchor">
                 <div className="time-anchor-heading"><span className="time-anchor-dot">A</span><div><strong>最早什么时候可以出发？</strong><small>EARLIEST START</small></div></div>
                 <div className="start-mode-toggle" aria-label="最早出发时间模式">
-                  <button type="button" className={form.earliestStartMode === 'now' ? 'is-selected' : ''} onClick={() => { setTimePickerOpen(null); setForm({ ...form, earliestStartMode: 'now' }) }}>现在</button>
-                  <button type="button" className={form.earliestStartMode === 'custom' ? 'is-selected' : ''} onClick={() => setForm({ ...form, earliestStartMode: 'custom' })}>自定义</button>
+                  <button type="button" className={form.earliestStartMode === 'now' ? 'is-selected' : ''} onClick={() => { confirmStep(1); setTimePickerOpen(null); setForm({ ...form, earliestStartMode: 'now' }) }}>现在</button>
+                  <button type="button" className={form.earliestStartMode === 'custom' ? 'is-selected' : ''} onClick={() => { confirmStep(1); setForm({ ...form, earliestStartMode: 'custom' }) }}>自定义</button>
                 </div>
                 {form.earliestStartMode === 'now' ? (
                   <div className="anchor-now"><Clock3 size={17} /><span><strong>现在就可以</strong><small>提交时以当下时刻为准</small></span></div>
