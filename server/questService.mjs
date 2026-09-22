@@ -76,6 +76,37 @@ function chinaClock() {
   return Number(values.hour) * 60 + Number(values.minute)
 }
 
+function chinaDate(timestamp = Date.now()) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit',
+  }).formatToParts(new Date(timestamp))
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]))
+  return `${values.year}-${values.month}-${values.day}`
+}
+
+function chinaDateTime(date, time) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(text(date)) || !/^\d{2}:\d{2}$/.test(text(time))) return NaN
+  const [hour, minute] = time.split(':').map(Number)
+  if (hour > 23 || minute > 59) return NaN
+  return Date.parse(`${date}T${time}:00+08:00`)
+}
+
+export function resolveTimeWindow(input, now = Date.now()) {
+  const startMode = input?.earliestStartMode === 'custom' ? 'custom' : 'now'
+  const startAt = startMode === 'custom'
+    ? chinaDateTime(input?.earliestStartDate, input?.earliestStartTime)
+    : now
+  const deadlineAt = chinaDateTime(input?.freeUntilDate, input?.freeUntil)
+  return {
+    startMode,
+    startAt,
+    deadlineAt,
+    availableMinutes: Number.isFinite(startAt) && Number.isFinite(deadlineAt)
+      ? Math.floor((deadlineAt - startAt) / 60000)
+      : NaN,
+  }
+}
+
 export function minutesUntil(time, date) {
   if (!/^\d{2}:\d{2}$/.test(time)) return NaN
   const [hour, minute] = time.split(':').map(Number)
@@ -158,6 +189,40 @@ function openingStatus(hours, arrivalMinutes, stayMinutes) {
     if (end < start) end += 1440
     return arrivalMinutes >= start && visitEnd <= end
   }) ? 'open' : 'closed'
+}
+
+function feasibleVisitSlot(hours, earliestStartAt, deadlineAt, travelMinutes, stayMinutes) {
+  const totalWithoutBuffer = (travelMinutes + stayMinutes) * 60000
+  const totalWithBuffer = (travelMinutes + stayMinutes + 20) * 60000
+  if (earliestStartAt + totalWithBuffer > deadlineAt) return null
+
+  if (/(24\s*小时|全天)/.test(text(hours))) {
+    return { departureAt: earliestStartAt, status: 'open' }
+  }
+
+  const ranges = [...text(hours).matchAll(/(\d{1,2}):(\d{2})-(\d{1,2}):(\d{2})/g)]
+  if (!ranges.length) return { departureAt: earliestStartAt, status: 'unknown' }
+
+  const dayStart = Date.parse(`${chinaDate(earliestStartAt)}T00:00:00+08:00`)
+  for (const match of ranges) {
+    const openAt = dayStart + (Number(match[1]) * 60 + Number(match[2])) * 60000
+    let closeAt = dayStart + (Number(match[3]) * 60 + Number(match[4])) * 60000
+    if (closeAt < openAt) closeAt += 24 * 60 * 60000
+    const departureAt = Math.max(earliestStartAt, openAt - travelMinutes * 60000)
+    const visitEndAt = departureAt + totalWithoutBuffer
+    if (visitEndAt <= closeAt && departureAt + totalWithBuffer <= deadlineAt) {
+      return { departureAt, status: 'open' }
+    }
+  }
+  return null
+}
+
+function timeLabel(timestamp) {
+  const parts = new Intl.DateTimeFormat('zh-CN', {
+    timeZone: 'Asia/Shanghai', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+  }).formatToParts(new Date(timestamp))
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]))
+  return `${values.month}月${values.day}日 ${values.hour}:${values.minute}`
 }
 
 function fullAddress(poi) {
@@ -298,9 +363,13 @@ export async function createQuest({ input, excludedIds = [] }, config = process.
     throw new QuestServiceError('真实地点服务还没连接好。配置高德 Web 服务 Key 后再试，我不会再用虚构地点敷衍你。', 'CONFIG_REQUIRED', 503)
   }
 
-  const availableMinutes = minutesUntil(input?.freeUntil, input?.freeUntilDate)
+  const now = Date.now()
+  const { startMode, startAt, deadlineAt, availableMinutes } = resolveTimeWindow(input, now)
+  if (!Number.isFinite(startAt) || (startMode === 'custom' && startAt < now - 60 * 1000)) {
+    throw new QuestServiceError('最早出发时间已经过去啦，换一个未来时间吧。', 'START_TIME_IN_PAST')
+  }
   if (Number.isFinite(availableMinutes) && availableMinutes <= 0) {
-    throw new QuestServiceError('这个截止时间已经过去啦，换一个还没到的时间吧。', 'TIME_IN_PAST')
+    throw new QuestServiceError('最晚结束时间要晚于最早出发时间哦。', 'TIME_IN_PAST')
   }
   if (!Number.isFinite(availableMinutes) || availableMinutes < 45) {
     throw new QuestServiceError('这段时间有点太短啦，至少留出 45 分钟再开启一次 LITTLE DETOUR。', 'TIME_TOO_SHORT')
@@ -333,17 +402,23 @@ export async function createQuest({ input, excludedIds = [] }, config = process.
     await wait(1100)
   }
 
-  const nowMinutes = chinaClock()
-  const nearby = [...unique.values()]
+  const canUseTodayHours = chinaDate(startAt) === chinaDate(now)
+  const nearbyRanked = [...unique.values()]
     .sort((a, b) => (partyFitScore(b, partyProfile) - partyFitScore(a, partyProfile)) || (Number(a.distance || Infinity) - Number(b.distance || Infinity)))
-    .filter((poi) => {
+    .map((poi) => {
       const approximateTravel = Math.max(2, Math.ceil(Number(poi.distance || 0) / 70))
-      return openingStatus(poi.business?.opentime_today, nowMinutes + approximateTravel, visitMinutes(poi)) === 'open'
+      const hours = canUseTodayHours ? text(poi.business?.opentime_today) : ''
+      const slot = feasibleVisitSlot(hours, startAt, deadlineAt, approximateTravel, visitMinutes(poi))
+      return { poi, slot, hours }
     })
-    .slice(0, 6)
+    .filter((item) => item.slot)
+
+  const knownNearby = nearbyRanked.filter((item) => item.slot.status === 'open').slice(0, 6)
+  const unknownNearby = nearbyRanked.filter((item) => item.slot.status === 'unknown').slice(0, 2)
+  const nearby = [...knownNearby, ...unknownNearby].slice(0, 6)
 
   const routed = []
-  for (const poi of nearby) {
+  for (const { poi, hours } of nearby) {
     const route = await getWalkingRoute(origin.center, poi.location, poi.id, amapKey).catch(() => null)
     const approximateMinutes = Math.max(2, Math.ceil(Number(poi.distance || 0) / 70))
     routed.push({
@@ -356,7 +431,7 @@ export async function createQuest({ input, excludedIds = [] }, config = process.
       distanceMeters: route?.distanceMeters ?? (Number(poi.distance) || 0),
       travelMinutes: route?.durationMinutes ?? approximateMinutes,
       stayMinutes: visitMinutes(poi),
-      hours: text(poi.business?.opentime_today),
+      hours,
       costValue: parseCost(poi.business?.cost),
       rating: Number.parseFloat(text(poi.business?.rating)) || null,
       likelyFree: isLikelyFree(poi),
@@ -365,16 +440,16 @@ export async function createQuest({ input, excludedIds = [] }, config = process.
     await wait(1100)
   }
 
-  const feasible = routed.filter((candidate) => {
+  const feasible = routed.map((candidate) => {
     if (candidate.travelMinutes > MAX_WALK_MINUTES) return false
-    if (candidate.travelMinutes + candidate.stayMinutes + 20 > availableMinutes) return false
-    if (openingStatus(candidate.hours, nowMinutes + candidate.travelMinutes, candidate.stayMinutes) === 'closed') return false
+    const slot = feasibleVisitSlot(candidate.hours, startAt, deadlineAt, candidate.travelMinutes, candidate.stayMinutes)
+    if (!slot) return false
     if (Number.isFinite(maxBudget) && candidate.costValue !== null && candidate.costValue > maxBudget) return false
     if (maxBudget === 0 && candidate.costValue === null && !candidate.likelyFree) return false
-    return true
-  }).sort((a, b) => {
-    const aKnown = openingStatus(a.hours, nowMinutes + a.travelMinutes, a.stayMinutes) === 'open' ? 1 : 0
-    const bKnown = openingStatus(b.hours, nowMinutes + b.travelMinutes, b.stayMinutes) === 'open' ? 1 : 0
+    return { ...candidate, ...slot }
+  }).filter(Boolean).sort((a, b) => {
+    const aKnown = a.status === 'open' ? 1 : 0
+    const bKnown = b.status === 'open' ? 1 : 0
     return (bKnown - aKnown) || (b.partyFit - a.partyFit) || ((b.rating || 0) - (a.rating || 0)) || (a.travelMinutes - b.travelMinutes)
   })
 
@@ -395,13 +470,17 @@ export async function createQuest({ input, excludedIds = [] }, config = process.
         budgetPreference: input.budget,
         maxBudgetPerPerson: Number.isFinite(maxBudget) ? maxBudget : null,
         availableMinutes,
+        earliestStartMode: startMode,
+        earliestStartDate: chinaDate(startAt),
+        earliestStartTime: timeLabel(startAt),
         deadlineDate: input.freeUntilDate,
         deadlineTime: input.freeUntil,
       },
       candidates: grounded.map((item) => ({
         id: item.id, name: item.name, category: item.category,
         walkMinutes: item.travelMinutes, stayMinutes: item.stayMinutes,
-        todayHours: item.hours || '未公开', costPerPerson: item.costValue,
+        plannedDeparture: timeLabel(item.departureAt),
+        openingHours: item.hours || '未公开，出发前需确认', costPerPerson: item.costValue,
       })),
     }, {
       apiKey: config.DASHSCOPE_API_KEY,
@@ -419,7 +498,7 @@ export async function createQuest({ input, excludedIds = [] }, config = process.
   const copy = writing && selected.id === writing.selectedId
     ? writing
     : fallbackWriting(selected, input, excludedIds.length)
-  const status = openingStatus(selected.hours, nowMinutes + selected.travelMinutes, selected.stayMinutes)
+  const status = selected.status
   const costText = selected.costValue !== null
     ? `人均约 ${Math.round(selected.costValue)} 元`
     : selected.likelyFree ? '可免费到访' : '消费信息未公开'
@@ -437,7 +516,7 @@ export async function createQuest({ input, excludedIds = [] }, config = process.
     address: selected.address,
     travel: `步行约 ${selected.travelMinutes} 分钟`,
     duration: `建议停留 ${Math.max(20, Math.min(copy.durationMinutes || selected.stayMinutes, selected.stayMinutes + 20))} 分钟`,
-    closing: selected.hours ? `今日营业 ${selected.hours}` : '营业时间未公开',
+    closing: selected.hours ? `营业 ${selected.hours}` : '营业时间待确认',
     cost: costText,
     mission: copy.mission,
     reason: copy.reason,
@@ -451,6 +530,8 @@ export async function createQuest({ input, excludedIds = [] }, config = process.
         ? '真实地点、步行路线与营业时间均已核验；本次未限制人均预算。'
         : '真实地点、步行路线、营业时间与人均预算均已核验。',
     partyLabel: `${partySize} 人同行`,
+    schedule: `建议 ${timeLabel(selected.departureAt)} 后出发`,
+    operatingStatus: status === 'unknown' ? 'unknown' : 'verified',
     generationSource: writing && selected.id === writing.selectedId ? 'qwen' : 'local-rules',
     generationFallbackReason,
   }
