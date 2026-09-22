@@ -52,7 +52,7 @@ function partyHint(value: string) {
 
 const loadingSteps = [
   '正在翻翻你附近有什么',
-  '先排除那些来不及的',
+  '先排除塞不进时间窗口的',
   '就选一个，别再纠结了',
   '给这趟出门加点任务感',
 ]
@@ -65,7 +65,7 @@ function chinaDateValue(date = new Date()) {
   return `${values.year}-${values.month}-${values.day}`
 }
 
-function deadlineDateLabel(value: string) {
+function dateLabel(value: string) {
   if (!value) return '选择日期'
   const today = chinaDateValue()
   const tomorrow = chinaDateValue(new Date(Date.now() + 24 * 60 * 60 * 1000))
@@ -111,7 +111,7 @@ function BriefModal({ onClose }: { onClose: () => void }) {
         </section>
         <section>
           <h3>我们提供什么</h3>
-          <p>把你在哪儿、几个人、几点前有空、今天想怎么待告诉 LITTLE DETOUR。我们先把去不了、来不及、不适合同行人数的选项删掉，然后只留一个现在真的可以去的地方。</p>
+          <p>把你在哪儿、几个人、最早何时出发、最晚何时结束告诉 LITTLE DETOUR。我们先把去不了、来不及、不适合同行人数的选项删掉，然后只留一个能放进这段空档的地方。</p>
         </section>
         <div className="brief-pillars">
           <div><strong>One</strong><span>一次只给一个 Quest</span></div>
@@ -187,9 +187,8 @@ interface SetupProps {
 function Setup({ form, setForm, onGenerate, onBack }: SetupProps) {
   const [locating, setLocating] = useState(false)
   const [locationError, setLocationError] = useState('')
-  const [timePickerOpen, setTimePickerOpen] = useState(false)
-  const [draftHour, setDraftHour] = useState('')
-  const [draftMinute, setDraftMinute] = useState('')
+  const [timePickerOpen, setTimePickerOpen] = useState<'start' | 'end' | null>(null)
+  const [draftTime, setDraftTime] = useState({ hour: '', minute: '' })
   const timePickerRef = useRef<HTMLDivElement>(null)
 
   const useLocation = () => {
@@ -220,21 +219,36 @@ function Setup({ form, setForm, onGenerate, onBack }: SetupProps) {
   const hasValidBudget = form.budget !== 'custom' || (Number.isFinite(customBudget) && customBudget > 0)
   const partySize = Number(form.partySize)
   const hasValidPartySize = Number.isInteger(partySize) && partySize >= 1 && partySize <= 99
+  const startTimestamp = form.earliestStartMode === 'now'
+    ? Date.now()
+    : form.earliestStartDate && form.earliestStartTime
+      ? Date.parse(`${form.earliestStartDate}T${form.earliestStartTime}:00+08:00`)
+      : NaN
   const deadlineTimestamp = form.freeUntilDate && form.freeUntil
     ? Date.parse(`${form.freeUntilDate}T${form.freeUntil}:00+08:00`)
     : NaN
-  const deadlineMinutes = Math.floor((deadlineTimestamp - Date.now()) / 60000)
-  const hasValidDeadline = Number.isFinite(deadlineMinutes) && deadlineMinutes >= 45
-  const isValid = form.locationLabel.trim().length > 1 && hasValidDeadline && hasValidPartySize && hasValidBudget
+  const startMinutesFromNow = Math.floor((startTimestamp - Date.now()) / 60000)
+  const windowMinutes = Math.floor((deadlineTimestamp - startTimestamp) / 60000)
+  const hasCustomStartValue = Boolean(form.earliestStartDate && form.earliestStartTime)
+  const hasValidStart = form.earliestStartMode === 'now'
+    || (hasCustomStartValue && Number.isFinite(startTimestamp) && startMinutesFromNow >= -1)
+  const hasValidDeadline = Number.isFinite(windowMinutes) && windowMinutes >= 45
+  const isValid = form.locationLabel.trim().length > 1 && hasValidStart && hasValidDeadline && hasValidPartySize && hasValidBudget
+
+  const openTimePicker = (kind: 'start' | 'end', value: string) => {
+    const [hour = '', minute = ''] = value ? value.split(':') : []
+    setDraftTime({ hour, minute })
+    setTimePickerOpen(kind)
+  }
 
   useEffect(() => {
     if (!timePickerOpen) return
 
     const closeOnOutsideClick = (event: PointerEvent) => {
-      if (!timePickerRef.current?.contains(event.target as Node)) setTimePickerOpen(false)
+      if (!timePickerRef.current?.contains(event.target as Node)) setTimePickerOpen(null)
     }
     const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setTimePickerOpen(false)
+      if (event.key === 'Escape') setTimePickerOpen(null)
     }
 
     document.addEventListener('pointerdown', closeOnOutsideClick)
@@ -273,79 +287,63 @@ function Setup({ form, setForm, onGenerate, onBack }: SetupProps) {
           </fieldset>
 
           <fieldset>
-            <legend><span>2</span> 哪天几点前都归你？</legend>
-            <div className="time-picker-field" ref={timePickerRef}>
-              <button
-                type="button"
-                className="input-wrap time-input-wrap"
-                aria-label={`空闲截止时间，${deadlineDateLabel(form.freeUntilDate)}${form.freeUntil ? ` ${form.freeUntil}` : '，尚未选择时间'}`}
-                aria-expanded={timePickerOpen}
-                onClick={() => {
-                  if (!timePickerOpen) {
-                    const [hour = '', minute = ''] = form.freeUntil ? form.freeUntil.split(':') : []
-                    setDraftHour(hour)
-                    setDraftMinute(minute)
-                  }
-                  setTimePickerOpen((open) => !open)
-                }}
-              >
-                <CalendarDays size={18} aria-hidden="true" />
-                <span className="deadline-field-copy">
-                  <strong>{deadlineDateLabel(form.freeUntilDate)}</strong>
-                  <small className={form.freeUntil ? '' : 'is-placeholder'}>{form.freeUntil || '--:--'}</small>
-                </span>
-              </button>
+            <legend><span>2</span> 这段空档，什么时候出发和结束？</legend>
+            <div className="time-window-card" ref={timePickerRef}>
+              <section className="time-anchor">
+                <div className="time-anchor-heading"><span className="time-anchor-dot">A</span><div><strong>最早什么时候可以出发？</strong><small>EARLIEST START</small></div></div>
+                <div className="start-mode-toggle" aria-label="最早出发时间模式">
+                  <button type="button" className={form.earliestStartMode === 'now' ? 'is-selected' : ''} onClick={() => { setTimePickerOpen(null); setForm({ ...form, earliestStartMode: 'now' }) }}>现在</button>
+                  <button type="button" className={form.earliestStartMode === 'custom' ? 'is-selected' : ''} onClick={() => setForm({ ...form, earliestStartMode: 'custom' })}>自定义</button>
+                </div>
+                {form.earliestStartMode === 'now' ? (
+                  <div className="anchor-now"><Clock3 size={17} /><span><strong>现在就可以</strong><small>提交时以当下时刻为准</small></span></div>
+                ) : (
+                  <button type="button" className="input-wrap time-input-wrap" aria-label={`最早出发时间，${dateLabel(form.earliestStartDate)} ${form.earliestStartTime || '尚未选择'}`} aria-expanded={timePickerOpen === 'start'} onClick={() => openTimePicker('start', form.earliestStartTime)}>
+                    <CalendarDays size={18} aria-hidden="true" /><span className="deadline-field-copy"><strong>{dateLabel(form.earliestStartDate)}</strong><small className={form.earliestStartTime ? '' : 'is-placeholder'}>{form.earliestStartTime || '--:--'}</small></span>
+                  </button>
+                )}
+              </section>
+
+              <div className="time-window-connector"><span /><em>TO</em><span /></div>
+
+              <section className="time-anchor">
+                <div className="time-anchor-heading"><span className="time-anchor-dot">B</span><div><strong>最晚什么时候需要结束？</strong><small>LATEST FINISH · 必填</small></div></div>
+                <button type="button" className="input-wrap time-input-wrap" aria-label={`最晚结束时间，${dateLabel(form.freeUntilDate)} ${form.freeUntil || '尚未选择'}`} aria-expanded={timePickerOpen === 'end'} onClick={() => openTimePicker('end', form.freeUntil)}>
+                  <CalendarDays size={18} aria-hidden="true" /><span className="deadline-field-copy"><strong>{dateLabel(form.freeUntilDate)}</strong><small className={form.freeUntil ? '' : 'is-placeholder'}>{form.freeUntil || '--:--'}</small></span>
+                </button>
+              </section>
+
               {timePickerOpen && (
-                <div className="time-picker-popover" role="group" aria-label="选择空闲截止时间">
-                  <span className="time-picker-caption">SELECT DEADLINE · 选个结束时间</span>
+                <div className={`time-picker-popover time-picker-popover--${timePickerOpen}`} role="group" aria-label={timePickerOpen === 'start' ? '选择最早出发时间' : '选择最晚结束时间'}>
+                  <span className="time-picker-caption">{timePickerOpen === 'start' ? 'SELECT START · 选个出发时间' : 'SELECT FINISH · 选个结束时间'}</span>
                   <label className="date-picker-control">
                     <span>先选日期</span>
-                    <input
-                      type="date"
-                      aria-label="空闲截止日期"
-                      min={chinaDateValue()}
-                      value={form.freeUntilDate}
-                      onChange={(event) => setForm((current) => ({ ...current, freeUntilDate: event.target.value }))}
-                    />
+                    <input type="date" aria-label={timePickerOpen === 'start' ? '最早出发日期' : '最晚结束日期'} min={chinaDateValue()} value={timePickerOpen === 'start' ? form.earliestStartDate : form.freeUntilDate} onChange={(event) => setForm((current) => timePickerOpen === 'start' ? { ...current, earliestStartDate: event.target.value } : { ...current, freeUntilDate: event.target.value })} />
                   </label>
                   <span className="time-picker-section-label">再选时间</span>
                   <div className="time-picker-selects">
-                    <label>
-                      <span>小时</span>
-                      <select aria-label="小时" value={draftHour} onChange={(event) => setDraftHour(event.target.value)}>
-                        <option value="" disabled>--</option>
-                        {Array.from({ length: 24 }, (_, hour) => String(hour).padStart(2, '0')).map((hour) => <option key={hour} value={hour}>{hour}</option>)}
-                      </select>
-                    </label>
+                    <label><span>小时</span><select aria-label="小时" value={draftTime.hour} onChange={(event) => setDraftTime((current) => ({ ...current, hour: event.target.value }))}><option value="" disabled>--</option>{Array.from({ length: 24 }, (_, hour) => String(hour).padStart(2, '0')).map((hour) => <option key={hour} value={hour}>{hour}</option>)}</select></label>
                     <b>:</b>
-                    <label>
-                      <span>分钟</span>
-                      <select aria-label="分钟" value={draftMinute} onChange={(event) => setDraftMinute(event.target.value)}>
-                        <option value="" disabled>--</option>
-                        {Array.from({ length: 60 }, (_, minute) => String(minute).padStart(2, '0')).map((minute) => <option key={minute} value={minute}>{minute}</option>)}
-                      </select>
-                    </label>
+                    <label><span>分钟</span><select aria-label="分钟" value={draftTime.minute} onChange={(event) => setDraftTime((current) => ({ ...current, minute: event.target.value }))}><option value="" disabled>--</option>{Array.from({ length: 60 }, (_, minute) => String(minute).padStart(2, '0')).map((minute) => <option key={minute} value={minute}>{minute}</option>)}</select></label>
                   </div>
-                  <button
-                    type="button"
-                    className="time-picker-done"
-                    disabled={!draftHour || !draftMinute}
-                    onClick={() => {
-                      setForm((current) => ({ ...current, freeUntil: `${draftHour}:${draftMinute}` }))
-                      setTimePickerOpen(false)
-                    }}
-                  >
-                    就到这里 <Check size={15} />
-                  </button>
+                  <button type="button" className="time-picker-done" disabled={!draftTime.hour || !draftTime.minute} onClick={() => {
+                    const value = `${draftTime.hour}:${draftTime.minute}`
+                    setForm((current) => timePickerOpen === 'start' ? { ...current, earliestStartTime: value } : { ...current, freeUntil: value })
+                    setTimePickerOpen(null)
+                  }}>{timePickerOpen === 'start' ? '从这里开始' : '最晚到这里'} <Check size={15} /></button>
                 </div>
               )}
             </div>
-            <p className={`field-hint ${form.freeUntil && !hasValidDeadline ? 'is-warning' : ''}`}>
-              {form.freeUntil && deadlineMinutes <= 0
-                ? '这个时间已经过去啦，换一个还没到的时间吧。'
-                : form.freeUntil && deadlineMinutes < 45
-                  ? '至少留出 45 分钟，才够开启一次 LITTLE DETOUR。'
-                  : '默认今天；如果空闲跨过零点，点开就能换到明天或其他日期。'}
+            <p className={`field-hint ${(!hasValidStart || (form.freeUntil && !hasValidDeadline)) ? 'is-warning' : ''}`}>
+              {form.earliestStartMode === 'custom' && !hasCustomStartValue
+                ? '先告诉我你最早什么时候可以出发。'
+                : !hasValidStart
+                  ? '最早出发时间已经过去啦，换一个未来时间吧。'
+                : form.freeUntil && Number.isFinite(windowMinutes) && windowMinutes <= 0
+                  ? '结束时间要晚于出发时间哦。'
+                  : form.freeUntil && windowMinutes < 45
+                    ? '两个锚点之间至少留出 45 分钟，才够开启一次 LITTLE DETOUR。'
+                    : '我们只会在这两个锚点之间安排一件事，不会把空档硬塞满。'}
             </p>
           </fieldset>
 
@@ -449,11 +447,11 @@ function QuestView({ quest, rerolls, onReroll, onAccept, onEdit, rerolling }: Qu
       <section className={`quest-stage ${rerolling ? 'is-rerolling' : ''}`}>
         <div className="quest-number">SIDE<br />QUEST<br /><strong>#{quest.id.length + 7}</strong></div>
         <article className="quest-card">
-          <div className="quest-card-top"><span className="kicker">{quest.eyebrow}</span><div className="quest-badges"><span className="party-badge"><UsersRound size={13} /> {quest.partyLabel}</span><span className="verified"><span /> 真实地点 · 已核验</span></div></div>
+          <div className="quest-card-top"><span className="kicker">{quest.eyebrow}</span><div className="quest-badges"><span className="party-badge"><UsersRound size={13} /> {quest.partyLabel}</span><span className={`verified ${quest.operatingStatus === 'unknown' ? 'is-pending' : ''}`}><span /> {quest.operatingStatus === 'unknown' ? '真实地点 · 营业待确认' : '真实地点 · 已核验'}</span></div></div>
           <h1><QuestTitle title={quest.title} place={quest.place} /></h1>
           <div className="destination-block">
             <div className="destination-pin"><MapPin size={22} /></div>
-            <div><span>DESTINATION · 目的地</span><h2>{quest.place}</h2><p>{quest.category} · {quest.address}</p></div>
+            <div><span>DESTINATION · 目的地</span><h2>{quest.place}</h2><p>{quest.category} · {quest.address}</p><p className="schedule-line"><Clock3 size={13} /> {quest.schedule}</p></div>
           </div>
           <div className="facts-grid">
             <div><Footprints size={17} /><span>{quest.travel}</span></div>
@@ -524,7 +522,7 @@ function ErrorScreen({ message, onRetry, onEdit }: { message: string; onRetry: (
 export default function App() {
   const [screen, setScreen] = useState<Screen>('home')
   const [showBrief, setShowBrief] = useState(false)
-  const [form, setForm] = useState<QuestInput>({ locationLabel: '', freeUntilDate: chinaDateValue(), freeUntil: '', partySize: '1', vibe: 'curious', budget: 'free', customBudget: '' })
+  const [form, setForm] = useState<QuestInput>({ locationLabel: '', earliestStartMode: 'now', earliestStartDate: chinaDateValue(), earliestStartTime: '', freeUntilDate: chinaDateValue(), freeUntil: '', partySize: '1', vibe: 'curious', budget: 'free', customBudget: '' })
   const [quest, setQuest] = useState<Quest | null>(null)
   const [seenIds, setSeenIds] = useState<string[]>([])
   const [rerolls, setRerolls] = useState(3)

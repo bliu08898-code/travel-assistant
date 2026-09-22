@@ -119,13 +119,33 @@ button:focus-visible, input:focus-visible { outline: 3px solid rgba(238, 95, 61,
 .success-icon { color: #387a59; margin-left: auto; }
 .input-wrap input { border: 0; outline: 0; background: transparent; flex: 1; min-width: 0; }
 .input-wrap:focus-within { border-color: var(--red); box-shadow: 0 0 0 2px rgba(238, 95, 61, 0.1); }
-.time-picker-field { position: relative; }
+.time-window-card { position: relative; padding: 20px; border: 1px solid var(--ink); background: #fffaf2; }
+.time-anchor { display: grid; gap: 13px; }
+.time-anchor-heading { display: flex; align-items: center; gap: 11px; }
+.time-anchor-heading > div { display: flex; flex-direction: column; gap: 2px; }
+.time-anchor-heading strong { font-size: 13px; }
+.time-anchor-heading small { color: var(--muted); font: 500 8px var(--mono); letter-spacing: 0.13em; }
+.time-anchor-dot { width: 28px; height: 28px; border: 1px solid var(--red); border-radius: 50%; color: var(--red); display: grid; place-items: center; font: italic 16px var(--serif); flex: 0 0 auto; }
+.start-mode-toggle { display: grid; grid-template-columns: 1fr 1fr; }
+.start-mode-toggle button { min-height: 40px; border: 1px solid var(--line); background: transparent; cursor: pointer; font-size: 11px; }
+.start-mode-toggle button + button { margin-left: -1px; }
+.start-mode-toggle button.is-selected { position: relative; z-index: 1; color: var(--cream); background: var(--ink); border-color: var(--ink); }
+.anchor-now { min-height: 54px; padding: 0 16px; border: 1px solid var(--line); display: flex; align-items: center; gap: 11px; background: rgba(243, 240, 230, 0.65); }
+.anchor-now svg { color: var(--red); }
+.anchor-now span { display: flex; flex-direction: column; gap: 3px; }
+.anchor-now strong { font-size: 13px; }
+.anchor-now small { color: var(--muted); font: 400 9px var(--mono); }
+.time-window-connector { height: 43px; display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 10px; }
+.time-window-connector span { height: 1px; background: var(--line); }
+.time-window-connector em { color: var(--red); font: 500 8px var(--mono); letter-spacing: 0.14em; }
 .time-input-wrap { cursor: pointer; text-align: left; color: var(--ink); }
 .deadline-field-copy { flex: 1; min-width: 0; display: flex; align-items: baseline; justify-content: space-between; gap: 16px; }
 .deadline-field-copy strong { font-size: 15px; font-weight: 650; letter-spacing: 0.01em; }
 .deadline-field-copy small { color: var(--red); font: 600 16px var(--mono); letter-spacing: 0.02em; }
 .deadline-field-copy small.is-placeholder { color: var(--muted); }
-.time-picker-popover { position: absolute; z-index: 8; top: calc(100% + 8px); left: 0; width: min(330px, 100%); padding: 18px; border: 1px solid var(--ink); background: var(--cream); box-shadow: 6px 6px 0 #d9d4c4; }
+.time-picker-popover { position: absolute; z-index: 8; left: 20px; width: min(330px, calc(100% - 40px)); padding: 18px; border: 1px solid var(--ink); background: var(--cream); box-shadow: 6px 6px 0 #d9d4c4; }
+.time-picker-popover--start { top: 160px; }
+.time-picker-popover--end { top: calc(100% + 8px); }
 .time-picker-caption { display: block; margin-bottom: 14px; color: var(--red); font: 500 9px/1.4 var(--mono); letter-spacing: 0.12em; }
 .date-picker-control { display: grid; gap: 6px; margin-bottom: 15px; }
 .date-picker-control > span, .time-picker-section-label { color: var(--muted); font: 400 9px var(--mono); }
@@ -202,6 +222,7 @@ button:focus-visible, input:focus-visible { outline: 3px solid rgba(238, 95, 61,
 .party-badge svg { color: var(--quest-accent); }
 .verified { font: 500 9px var(--mono); display: flex; align-items: center; gap: 8px; }
 .verified span { width: 7px; height: 7px; border-radius: 50%; background: #387a59; }
+.verified.is-pending span { background: #b67422; }
 .quest-card h1 { max-width: 760px; font-size: clamp(48px, 7vw, 78px); margin: 30px 0 48px; line-height: 1.12; }
 .place-highlight {
   padding: 0 0.08em 0.035em;
@@ -214,6 +235,7 @@ button:focus-visible, input:focus-visible { outline: 3px solid rgba(238, 95, 61,
 .destination-block span, .mission-block div > span { font: 500 9px var(--mono); letter-spacing: 0.14em; color: var(--muted); }
 .destination-block h2 { margin: 5px 0 2px; font-size: 22px; letter-spacing: -0.03em; }
 .destination-block p { margin: 0; font-size: 12px; color: var(--muted); }
+.destination-block .schedule-line { margin-top: 8px; display: flex; align-items: center; gap: 6px; color: var(--quest-accent); font: 500 10px var(--mono); }
 .facts-grid { display: grid; grid-template-columns: repeat(4, 1fr); border-bottom: 1px solid var(--line); }
 .facts-grid div { min-height: 62px; display: flex; align-items: center; gap: 8px; font: 400 10px var(--mono); }
 .mission-block { display: grid; grid-template-columns: 75px 1fr; padding: 40px 0; border-bottom: 1px solid var(--ink); }
@@ -289,6 +311,8 @@ button:focus-visible, input:focus-visible { outline: 3px solid rgba(238, 95, 61,
   .setup-intro .setup-title { font-size: clamp(38px, 10vw, 52px); }
   .principle-note { margin-top: 28px; }
   .setup-form { gap: 38px; }
+  .time-window-card { padding: 16px; }
+  .time-picker-popover { left: 10px; width: calc(100% - 20px); }
   .vibe-grid { grid-template-columns: 1fr; }
   .vibe-option:last-child { grid-column: auto; }
   .budget-row { grid-template-columns: repeat(3, 1fr); }

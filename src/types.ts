@@ -4,6 +4,9 @@ export type Budget = 'free' | 'any' | 'custom'
 export interface QuestInput {
   locationLabel: string
   coordinates?: { latitude: number; longitude: number }
+  earliestStartMode: 'now' | 'custom'
+  earliestStartDate: string
+  earliestStartTime: string
   freeUntilDate: string
   freeUntil: string
   partySize: string
@@ -32,4 +35,6 @@ export interface Quest {
   verifiedAt: string
   verificationNote: string
   partyLabel: string
+  schedule: string
+  operatingStatus: 'verified' | 'unknown'
 }
